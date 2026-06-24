@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TECH STOCKS INFOBAR</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+        body {
+            font-family: 'JetBrains+Mono', monospace;
+            background-color: #090d16;
+        }
+        .cyber-border {
+            border: 1px solid #06b6d4;
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.15);
+        }
+        .glow-green { text-shadow: 0 0 8px #22c55e; }
+        .glow-pink { text-shadow: 0 0 8px #f43f5e; }
+    </style>
+</head>
+<body class="text-slate-200 min-h-screen p-8">
+
+    <div class="max-w-6xl mx-auto">
+        <!-- Header -->
+        <header class="border-b border-cyan-800 pb-4 mb-8 flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold text-cyan-400 tracking-wider">// TECH_STOCK_MONITOR v1.0</h1>
+                <p class="text-xs text-slate-500 mt-1">Status: <span class="text-green-400 animate-pulse">ONLINE</span> | Interval: 10s</p>
+                <a href="/voo" class="text-xs text-cyan-600 hover:text-cyan-400 underline">VOO holdings monitor</a>
+                <span class="text-xs text-slate-700 mx-1">|</span>
+                <a href="/portfolio" class="text-xs text-cyan-600 hover:text-cyan-400 underline">CAD portfolio monitor</a>
+            </div>
+            <div id="clock" class="text-cyan-500 text-sm font-bold"></div>
+        </header>
+
+        <!-- Grid Dashboard -->
+        <div id="dashboard-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Loading State -->
+            <div class="col-span-full text-center text-cyan-500 py-12 animate-pulse">
+                INITIALIZING DATA STREAM...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Đồng hồ góc phải
+        setInterval(() => {
+            document.getElementById('clock').innerText = new Date().toISOString().slice(11, 19) + " UTC";
+        }, 1000);
+
+        // Lưu trữ các object chart để tránh bị lỗi đè chart cũ
+        const charts = {};
+
+        async function fetchStockData() {
+            try {
+                const response = await fetch('/api/stocks');
+                const data = await response.getJson ? await response.getJson() : await response.json();
+                
+                const grid = document.getElementById('dashboard-grid');
+                grid.innerHTML = ''; // Clear loading hoặc data cũ
+
+                Object.keys(data).forEach(ticker => {
+                    const stock = data[ticker];
+                    const isPositive = stock.change >= 0;
+                    const colorClass = isPositive ? 'text-green-400 glow-green' : 'text-rose-500 glow-pink';
+                    const trendIcon = isPositive ? '▲' : '▼';
+                    const sign = isPositive ? '+' : '';
+
+                    const card = document.createElement('div');
+                    card.className = 'cyber-border bg-[#0d1527] p-5 rounded-sm flex flex-col justify-between';
+                    
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start border-b border-slate-800 pb-2 mb-3">
+                            <div>
+                                <h2 class="text-xl font-bold text-cyan-400">${ticker}</h2>
+                                <p class="text-[10px] text-slate-500">USD / REALTIME</p>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-xs font-bold px-2 py-0.5 rounded ${isPositive ? 'bg-green-950 text-green-400 border border-green-800' : 'bg-rose-950 text-rose-400 border border-rose-800'}">
+                                    ${trendIcon} ${sign}${stock.pct_change}%
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <div class="my-2">
+                            <div class="text-3xl font-bold ${colorClass}">
+                                $${stock.price}
+                            </div>
+                            <div class="text-xs ${colorClass} mt-1">
+                                ${trendIcon} ${sign}${stock.change} today
+                            </div>
+                        </div>
+
+                        <div class="h-16 my-2">
+                            <canvas id="chart-${ticker}"></canvas>
+                        </div>
+
+                        <div class="flex justify-between text-[10px] text-slate-500 border-t border-slate-800 pt-2 mt-2">
+                            <span>LOW: <span class="text-slate-300">$${stock.low}</span></span>
+                            <span>HIGH: <span class="text-slate-300">$${stock.high}</span></span>
+                        </div>
+                    `;
+
+                    grid.appendChild(card);
+
+                    // Vẽ sparkline chart cho từng mã cổ phiếu, xoá chart cũ trước khi vẽ lại
+                    if (charts[ticker]) {
+                        charts[ticker].destroy();
+                    }
+                    const canvas = document.getElementById(`chart-${ticker}`);
+                    charts[ticker] = new Chart(canvas, {
+                        type: 'line',
+                        data: {
+                            labels: stock.sparkline.map((_, i) => i),
+                            datasets: [{
+                                data: stock.sparkline,
+                                borderColor: isPositive ? '#22c55e' : '#f43f5e',
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                tension: 0.3,
+                                fill: false
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                            scales: { x: { display: false }, y: { display: false } }
+                        }
+                    });
+                });
+            } catch (err) {
+                console.error('Failed to load stock data:', err);
+            }
+        }
+
+        // Tải dữ liệu lần đầu, sau đó tự refresh mỗi 10 giây
+        fetchStockData();
+        setInterval(fetchStockData, 10000);
+    </script>
+</body>
+</html>

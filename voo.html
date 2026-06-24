@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOO HOLDINGS MONITOR</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: #090d16;
+        }
+        .cyber-border {
+            border: 1px solid #06b6d4;
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.15);
+        }
+        .glow-green { text-shadow: 0 0 8px #22c55e; }
+        .glow-pink { text-shadow: 0 0 8px #f43f5e; }
+        /* Keep the table scrollable without the whole page growing forever (~500 rows) */
+        #holdings-body tr:hover { background-color: #0d1527; }
+    </style>
+</head>
+<body class="text-slate-200 min-h-screen p-8">
+
+    <div class="max-w-6xl mx-auto">
+        <!-- Header -->
+        <header class="border-b border-cyan-800 pb-4 mb-8 flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold text-cyan-400 tracking-wider">// VOO_HOLDINGS_MONITOR v1.0</h1>
+                <p class="text-xs text-slate-500 mt-1">
+                    Status: <span class="text-green-400 animate-pulse">ONLINE</span>
+                    | <span id="holdings-count">...</span> holdings
+                    | Top <span id="live-count">...</span> have live prices (refresh: 15s)
+                </p>
+                <a href="/" class="text-xs text-cyan-600 hover:text-cyan-400 underline">&larr; back to tech stocks monitor</a>
+            </div>
+            <div id="clock" class="text-cyan-500 text-sm font-bold"></div>
+        </header>
+
+        <!-- Summary cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p class="text-[10px] text-slate-500">TOTAL HOLDINGS</p>
+                <p id="stat-total" class="text-xl font-bold text-cyan-400">--</p>
+            </div>
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p class="text-[10px] text-slate-500">LIVE QUOTES</p>
+                <p id="stat-live" class="text-xl font-bold text-cyan-400">--</p>
+            </div>
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p class="text-[10px] text-slate-500">TOP HOLDING</p>
+                <p id="stat-top" class="text-xl font-bold text-cyan-400">--</p>
+            </div>
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p class="text-[10px] text-slate-500">TOP 20 WEIGHT SUM</p>
+                <p id="stat-top20weight" class="text-xl font-bold text-cyan-400">--</p>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="mb-4 flex flex-col md:flex-row gap-3">
+            <input id="search-box" type="text" placeholder="filter by symbol or company name..."
+                   class="flex-1 bg-[#0d1527] cyber-border rounded-sm px-4 py-2 text-sm text-cyan-200 placeholder-slate-600 focus:outline-none">
+            <select id="sector-filter"
+                    class="bg-[#0d1527] cyber-border rounded-sm px-4 py-2 text-sm text-cyan-200 focus:outline-none md:w-64">
+                <option value="">All Sectors</option>
+            </select>
+        </div>
+
+        <!-- Holdings table -->
+        <div class="cyber-border bg-[#0d1527] rounded-sm overflow-hidden">
+            <div class="overflow-x-auto max-h-[70vh] overflow-y-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-[#10192e] text-cyan-400 text-xs uppercase sticky top-0">
+                        <tr>
+                            <th class="text-left px-4 py-3">#</th>
+                            <th class="text-left px-4 py-3">Symbol</th>
+                            <th class="text-left px-4 py-3">Company</th>
+                            <th class="text-left px-4 py-3 hidden md:table-cell">Sector</th>
+                            <th class="text-right px-4 py-3">% Contribution</th>
+                            <th class="text-right px-4 py-3">Real-Time Market Value</th>
+                            <th class="text-right px-4 py-3">24h Change</th>
+                        </tr>
+                    </thead>
+                    <tbody id="holdings-body" class="divide-y divide-slate-800">
+                        <tr>
+                            <td colspan="7" class="text-center text-cyan-500 py-12 animate-pulse">
+                                INITIALIZING DATA STREAM...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <p class="text-[10px] text-slate-600 mt-4">
+            % Contribution is each company's estimated weight in the S&P 500 / VOO, computed from market
+            capitalization (see scripts/build_voo_holdings.py). Real-Time Market Value is the live price per
+            share, shown only for the top holdings to keep the page fast.
+        </p>
+        <p class="text-xs mt-2">
+            <a href="/portfolio" class="text-cyan-600 hover:text-cyan-400 underline">&rarr; CAD portfolio monitor</a>
+        </p>
+    </div>
+
+    <script>
+        // Clock in the corner, same as the tech stocks monitor page.
+        setInterval(() => {
+            document.getElementById('clock').innerText = new Date().toISOString().slice(11, 19) + " UTC";
+        }, 1000);
+
+        let allHoldings = [];
+
+        function formatMoney(value) {
+            return value === null || value === undefined ? '—' : `$${value.toFixed(2)}`;
+        }
+
+        function renderTable(holdings) {
+            const tbody = document.getElementById('holdings-body');
+
+            if (holdings.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center text-slate-500 py-12">No matching holdings</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = holdings.map(stock => {
+                const hasLivePrice = stock.price !== null && stock.price !== undefined;
+                const isPositive = (stock.change ?? 0) >= 0;
+                const changeColor = !hasLivePrice ? 'text-slate-600' : (isPositive ? 'text-green-400 glow-green' : 'text-rose-500 glow-pink');
+                const sign = isPositive ? '+' : '';
+                const changeText = hasLivePrice ? `${sign}${stock.change.toFixed(2)} (${sign}${stock.pct_change.toFixed(2)}%)` : '—';
+
+                return `
+                    <tr>
+                        <td class="px-4 py-2 text-slate-500">${stock.rank}</td>
+                        <td class="px-4 py-2 font-bold text-cyan-400">
+                            ${stock.symbol}
+                            ${hasLivePrice ? '<span class="ml-1 text-[9px] px-1 py-0.5 rounded bg-green-950 text-green-400 border border-green-800">LIVE</span>' : ''}
+                        </td>
+                        <td class="px-4 py-2 text-slate-300">${stock.name}</td>
+                        <td class="px-4 py-2 text-slate-500 hidden md:table-cell">${stock.sector}</td>
+                        <td class="px-4 py-2 text-right text-cyan-200">${stock.weight_percent.toFixed(2)}%</td>
+                        <td class="px-4 py-2 text-right ${hasLivePrice ? 'text-slate-100' : 'text-slate-600'}">${formatMoney(stock.price)}</td>
+                        <td class="px-4 py-2 text-right text-xs ${changeColor}">${changeText}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        let sectorsPopulated = false;
+
+        function populateSectorFilter(holdings) {
+            if (sectorsPopulated) return; // sectors don't change between 15s refreshes
+            const select = document.getElementById('sector-filter');
+            const sectors = [...new Set(holdings.map(stock => stock.sector).filter(Boolean))].sort();
+            sectors.forEach(sector => {
+                const option = document.createElement('option');
+                option.value = sector;
+                option.textContent = sector;
+                select.appendChild(option);
+            });
+            sectorsPopulated = true;
+        }
+
+        function applyFilter() {
+            const query = document.getElementById('search-box').value.trim().toLowerCase();
+            const sector = document.getElementById('sector-filter').value;
+
+            const filtered = allHoldings.filter(stock => {
+                const matchesQuery = !query || stock.symbol.toLowerCase().includes(query) || stock.name.toLowerCase().includes(query);
+                const matchesSector = !sector || stock.sector === sector;
+                return matchesQuery && matchesSector;
+            });
+            renderTable(filtered);
+        }
+
+        function updateSummary(data) {
+            document.getElementById('holdings-count').innerText = data.total_holdings;
+            document.getElementById('live-count').innerText = data.top_n_live;
+            document.getElementById('stat-total').innerText = data.total_holdings;
+            document.getElementById('stat-live').innerText = data.top_n_live;
+
+            const top = data.holdings[0];
+            if (top) {
+                document.getElementById('stat-top').innerText = `${top.symbol} (${top.weight_percent.toFixed(2)}%)`;
+            }
+
+            const top20WeightSum = data.holdings
+                .slice(0, data.top_n_live)
+                .reduce((sum, stock) => sum + stock.weight_percent, 0);
+            document.getElementById('stat-top20weight').innerText = `${top20WeightSum.toFixed(1)}%`;
+        }
+
+        async function fetchVooHoldings() {
+            try {
+                const response = await fetch('/api/voo');
+                const data = await response.json();
+
+                allHoldings = data.holdings;
+                updateSummary(data);
+                populateSectorFilter(data.holdings);
+                applyFilter(); // re-render respecting any active search/sector selection
+            } catch (err) {
+                console.error('Failed to load VOO holdings:', err);
+            }
+        }
+
+        document.getElementById('search-box').addEventListener('input', applyFilter);
+        document.getElementById('sector-filter').addEventListener('change', applyFilter);
+
+        // Load immediately, then refresh live prices periodically.
+        fetchVooHoldings();
+        setInterval(fetchVooHoldings, 15000);
+    </script>
+</body>
+</html>

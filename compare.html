@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PORTFOLIO COMPARISON MONITOR</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: #090d16;
+        }
+        .cyber-border {
+            border: 1px solid #06b6d4;
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.15);
+        }
+        .glow-green { text-shadow: 0 0 8px #22c55e; }
+        .glow-pink { text-shadow: 0 0 8px #f43f5e; }
+    </style>
+</head>
+<body class="text-slate-200 min-h-screen p-8">
+
+    <div class="max-w-6xl mx-auto">
+        <!-- Header -->
+        <header class="border-b border-cyan-800 pb-4 mb-8 flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold text-cyan-400 tracking-wider">// PORTFOLIO_COMPARISON_MONITOR v1.0</h1>
+                <p class="text-xs text-slate-500 mt-1">Status: <span class="text-green-400 animate-pulse">ONLINE</span> | Option A vs 4 real managed accounts (TUS, TCA, RBHN, RD)</p>
+                <a href="/portfolio" class="text-xs text-cyan-600 hover:text-cyan-400 underline">&larr; CAD portfolio monitor</a>
+            </div>
+            <div id="clock" class="text-cyan-500 text-sm font-bold"></div>
+        </header>
+
+        <!-- Summary cards: one per portfolio -->
+        <div id="summary-cards" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6"></div>
+
+        <p class="text-[11px] text-amber-500/80 mb-6">
+            Tất cả 6 phương án được quy về cùng số vốn $3,780,000 CAD (= $1M CAD + $2M USD @ 1.39) để so sánh công bằng,
+            dựa trên % phân bổ thực tế hiện tại của từng tài khoản. Lợi suất kỳ vọng 3 năm chỉ là minh hoạ
+            (asset-class capital market assumptions trừ phí thực — không phải cam kết).
+        </p>
+
+        <!-- 3-year trajectory chart -->
+        <div class="cyber-border bg-[#0d1527] p-4 rounded-sm mb-6">
+            <p class="text-xs text-cyan-400 uppercase mb-3">Tăng trưởng dự kiến 3 năm (CAD, ròng phí)</p>
+            <div class="h-72"><canvas id="chart-trajectory"></canvas></div>
+        </div>
+
+        <!-- Fee comparison -->
+        <div class="cyber-border bg-[#0d1527] p-4 rounded-sm mb-6">
+            <p class="text-xs text-cyan-400 uppercase mb-3">So sánh chi phí (Advisor fee + MER, % / năm)</p>
+            <div class="h-64"><canvas id="chart-fee"></canvas></div>
+        </div>
+
+        <!-- A vs B breakdown charts -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p class="text-xs text-cyan-400 uppercase mb-3">Asset Class: A vs B</p>
+                <div class="h-64"><canvas id="chart-assetclass"></canvas></div>
+            </div>
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p class="text-xs text-cyan-400 uppercase mb-3">Geography: A vs B</p>
+                <div class="h-64"><canvas id="chart-region"></canvas></div>
+            </div>
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p class="text-xs text-cyan-400 uppercase mb-3">Equity Sector: A vs B</p>
+                <div class="h-64"><canvas id="chart-sector"></canvas></div>
+            </div>
+        </div>
+
+        <!-- Detail table -->
+        <div class="cyber-border bg-[#0d1527] rounded-sm overflow-hidden mb-6">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-[#10192e] text-cyan-400 text-xs uppercase">
+                        <tr>
+                            <th class="text-left px-4 py-3">Portfolio</th>
+                            <th class="text-right px-4 py-3">Giá trị thực hiện tại (CAD)</th>
+                            <th class="text-right px-4 py-3">Phí / năm</th>
+                            <th class="text-right px-4 py-3">Lợi suất gộp</th>
+                            <th class="text-right px-4 py-3">Lợi suất ròng</th>
+                            <th class="text-right px-4 py-3">Giá trị sau 3 năm (@ $3.78M)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="detail-body" class="divide-y divide-slate-800"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <p class="text-[10px] text-slate-600 leading-relaxed">
+            Dữ liệu TUS/TCA/RBHN/RD trích xuất từ file Apple Numbers do bạn cung cấp, phân loại sector/quốc gia qua
+            yfinance, MER quỹ tra cứu công khai (một số quỹ F-class hiếm — CI Global Investment Grade, Lysander-Canso,
+            PIMCO Managed Core Bond Pool, RBC QUBE Market Neutral — dùng số ước lượng vì không tìm được MER chính thức
+            công khai, có thể sai lệch). RBHN đã có sẵn cột "total fee" (1.1% + MER) trong file gốc, dùng trực tiếp.
+            Option A chỉ chịu phí ETF (~0.09%), không có advisor fee vì là portfolio tự quản lý — đây KHÔNG phải so
+            sánh ngang hàng về dịch vụ: 4 tài khoản kia có quản lý chuyên nghiệp, tư vấn, tiếp cận alternative
+            investments (private equity, infrastructure) mà portfolio tự làm ETF không có. Không phải lời khuyên đầu tư.
+        </p>
+    </div>
+
+    <script>
+        setInterval(() => {
+            document.getElementById('clock').innerText = new Date().toISOString().slice(11, 19) + " UTC";
+        }, 1000);
+
+        const COLORS = { A: '#22c55e', TUS: '#06b6d4', TCA: '#f59e0b', RBHN: '#a78bfa', RD: '#fb7185', B_COMBINED: '#f43f5e' };
+        const ORDER = ['A', 'TUS', 'TCA', 'RBHN', 'RD', 'B_COMBINED'];
+
+        function formatCad(value) {
+            return `$${Math.round(value).toLocaleString('en-CA')}`;
+        }
+
+        function renderSummaryCards(data) {
+            const container = document.getElementById('summary-cards');
+            container.innerHTML = ORDER.map(key => {
+                const d = data[key];
+                return `
+                    <div class="cyber-border bg-[#0d1527] p-3 rounded-sm">
+                        <p class="text-[10px] text-slate-500 truncate" title="${d.label}">${d.label}</p>
+                        <p class="text-lg font-bold" style="color:${COLORS[key]}">${d.net_return_pct.toFixed(2)}%</p>
+                        <p class="text-[10px] text-slate-500">fee ${d.weighted_fee_pct.toFixed(2)}% | 3y ${formatCad(d.trajectory_cad[3])}</p>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderDetailTable(data) {
+            const tbody = document.getElementById('detail-body');
+            tbody.innerHTML = ORDER.map(key => {
+                const d = data[key];
+                return `
+                    <tr>
+                        <td class="px-4 py-2 font-bold" style="color:${COLORS[key]}">${d.label}</td>
+                        <td class="px-4 py-2 text-right text-slate-300">${formatCad(d.actual_total_cad)}</td>
+                        <td class="px-4 py-2 text-right text-rose-400">${d.weighted_fee_pct.toFixed(2)}%</td>
+                        <td class="px-4 py-2 text-right text-slate-300">${d.gross_return_pct.toFixed(2)}%</td>
+                        <td class="px-4 py-2 text-right text-green-400">${d.net_return_pct.toFixed(2)}%</td>
+                        <td class="px-4 py-2 text-right text-cyan-200">${formatCad(d.trajectory_cad[3])}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function lineChart(canvasId, data) {
+            new Chart(document.getElementById(canvasId), {
+                type: 'line',
+                data: {
+                    labels: ['Now', 'Year 1', 'Year 2', 'Year 3'],
+                    datasets: ORDER.map(key => ({
+                        label: data[key].label,
+                        data: data[key].trajectory_cad,
+                        borderColor: COLORS[key],
+                        backgroundColor: COLORS[key],
+                        borderWidth: key === 'A' || key === 'B_COMBINED' ? 3 : 1.5,
+                        pointRadius: 2,
+                        tension: 0.2,
+                        fill: false,
+                    })),
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: '#94a3b8', font: { size: 10 } } } },
+                    scales: {
+                        x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+                        y: { ticks: { color: '#64748b', callback: v => '$' + (v/1e6).toFixed(2) + 'M' }, grid: { color: '#1e293b' } },
+                    },
+                },
+            });
+        }
+
+        function feeBarChart(canvasId, data) {
+            new Chart(document.getElementById(canvasId), {
+                type: 'bar',
+                data: {
+                    labels: ORDER.map(k => data[k].label),
+                    datasets: [{
+                        label: 'Fee % / year',
+                        data: ORDER.map(k => data[k].weighted_fee_pct),
+                        backgroundColor: ORDER.map(k => COLORS[k]),
+                    }],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { display: false } },
+                        y: { ticks: { color: '#64748b', callback: v => v + '%' }, grid: { color: '#1e293b' } },
+                    },
+                },
+            });
+        }
+
+        function groupedBarChart(canvasId, breakdownA, breakdownB) {
+            const labels = [...new Set([...Object.keys(breakdownA), ...Object.keys(breakdownB)])]
+                .sort((a, b) => (breakdownA[b] ?? 0) + (breakdownB[b] ?? 0) - ((breakdownA[a] ?? 0) + (breakdownB[a] ?? 0)));
+            new Chart(document.getElementById(canvasId), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Option A', data: labels.map(l => breakdownA[l] ?? 0), backgroundColor: COLORS.A },
+                        { label: 'Option B', data: labels.map(l => breakdownB[l] ?? 0), backgroundColor: COLORS.B_COMBINED },
+                    ],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+                    plugins: { legend: { labels: { color: '#94a3b8', font: { size: 10 } } } },
+                    scales: {
+                        x: { ticks: { color: '#64748b', callback: v => v + '%' }, grid: { color: '#1e293b' } },
+                        y: { ticks: { color: '#94a3b8', font: { size: 9 } }, grid: { display: false } },
+                    },
+                },
+            });
+        }
+
+        async function init() {
+            const response = await fetch('/api/compare');
+            const data = await response.json();
+
+            renderSummaryCards(data);
+            renderDetailTable(data);
+            lineChart('chart-trajectory', data);
+            feeBarChart('chart-fee', data);
+            groupedBarChart('chart-assetclass', data.A.asset_class_breakdown, data.B_COMBINED.asset_class_breakdown);
+            groupedBarChart('chart-region', data.A.region_breakdown, data.B_COMBINED.region_breakdown);
+            groupedBarChart('chart-sector', data.A.sector_breakdown, data.B_COMBINED.sector_breakdown);
+        }
+
+        init();
+    </script>
+</body>
+</html>
