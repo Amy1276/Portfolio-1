@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>US ETF PORTFOLIO MONITOR</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: #090d16;
+        }
+        .cyber-border {
+            border: 1px solid #06b6d4;
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.15);
+        }
+        .glow-green { text-shadow: 0 0 8px #22c55e; }
+        .glow-pink { text-shadow: 0 0 8px #f43f5e; }
+        #holdings-body tr:hover { background-color: #0d1527; }
+        th.sortable { cursor: pointer; user-select: none; }
+        th.sortable:hover { color: #67e8f9; }
+    </style>
+</head>
+<body class="text-slate-200 min-h-screen p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="border-b border-cyan-800 pb-4 mb-8 flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold text-cyan-400 tracking-wider">// US_ETF_PORTFOLIO_MONITOR v1.0</h1>
+                <p class="text-xs text-slate-500 mt-1">Status: <span class="text-green-400 animate-pulse">ONLINE</span> | 14 USD-listed ETFs (Option A, USD-only build)</p>
+                <a href="/portfolio" class="text-xs text-cyan-600 hover:text-cyan-400 underline">&larr; CAD portfolio monitor</a>
+                <span class="text-xs text-slate-700 mx-1">|</span>
+                <a href="/compare" class="text-xs text-cyan-600 hover:text-cyan-400 underline">account comparison</a>
+            </div>
+            <div id="clock" class="text-cyan-500 text-sm font-bold"></div>
+        </header>
+
+        <!-- Summary cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p class="text-[10px] text-slate-500">FUNDS IN MIX</p>
+                <p id="stat-count" class="text-xl font-bold text-cyan-400">--</p>
+            </div>
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p class="text-[10px] text-slate-500">MIX WEIGHTED MER</p>
+                <p id="stat-mer" class="text-xl font-bold text-cyan-400">--</p>
+            </div>
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p class="text-[10px] text-slate-500">MIX EXPECTED RETURN</p>
+                <p id="stat-return" class="text-xl font-bold text-cyan-400">--</p>
+            </div>
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p class="text-[10px] text-slate-500">ASSET CLASS SPLIT</p>
+                <p id="stat-split" class="text-xl font-bold text-cyan-400">--</p>
+            </div>
+        </div>
+
+        <!-- Fund focus selector -->
+        <div class="mb-4 flex items-center gap-3">
+            <label class="text-xs text-slate-500 uppercase">Fund focus:</label>
+            <select id="fund-focus" class="bg-[#0d1527] cyber-border rounded-sm px-4 py-2 text-sm text-cyan-200 focus:outline-none md:w-64">
+                <option value="">All Funds (Mix)</option>
+            </select>
+            <p class="text-[10px] text-slate-500">Pick a single fund to see its own sector mix (pie), performance, top holdings, and trailing-average projection.</p>
+        </div>
+
+        <!-- Charts -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p id="sector-chart-title" class="text-xs text-cyan-400 uppercase mb-3">Sector Contribution by Fund (stacked %)</p>
+                <div class="h-72"><canvas id="chart-sector"></canvas></div>
+            </div>
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p id="performance-chart-title" class="text-xs text-cyan-400 uppercase mb-3">Annual Performance by Fund (click legend to toggle)</p>
+                <div class="h-72"><canvas id="chart-performance"></canvas></div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p id="holdings-chart-title" class="text-xs text-cyan-400 uppercase mb-3">Top Holdings — Mix (look-through, weighted by fund mix %)</p>
+                <p id="holdings-chart-note" class="text-[10px] text-slate-500 mb-3 hidden"></p>
+                <div class="h-72"><canvas id="chart-holdings"></canvas></div>
+            </div>
+            <div class="cyber-border bg-[#0d1527] p-4 rounded-sm">
+                <p id="projection-chart-title" class="text-xs text-cyan-400 uppercase mb-3">Mix Portfolio: Historical Return vs 2026-2028 Projection</p>
+                <p class="text-[10px] text-amber-500/80 mb-3">
+                    Solid bars = actual return. Amber bars = projected — simple average of 2023-2025 actual returns
+                    plus 2026 YTD (not annualized), repeated for 2026/2027/2028. Not a forecast; recent years were a
+                    strong bull market so this trailing average likely overstates a realistic long-run expectation.
+                </p>
+                <div class="h-64"><canvas id="chart-mix-projection"></canvas></div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="mb-4 flex flex-col md:flex-row gap-3">
+            <input id="search-box" type="text" placeholder="filter by ticker or name..."
+                   class="flex-1 bg-[#0d1527] cyber-border rounded-sm px-4 py-2 text-sm text-cyan-200 placeholder-slate-600 focus:outline-none">
+            <select id="assetclass-filter" class="bg-[#0d1527] cyber-border rounded-sm px-4 py-2 text-sm text-cyan-200 focus:outline-none md:w-44">
+                <option value="">All Asset Classes</option>
+            </select>
+            <select id="region-filter" class="bg-[#0d1527] cyber-border rounded-sm px-4 py-2 text-sm text-cyan-200 focus:outline-none md:w-56">
+                <option value="">All Regions</option>
+            </select>
+            <select id="sort-select" class="bg-[#0d1527] cyber-border rounded-sm px-4 py-2 text-sm text-cyan-200 focus:outline-none md:w-56">
+                <option value="">Sort by...</option>
+                <option value="mer_pct">MER (low to high)</option>
+                <option value="aum_usd_desc">AUM (high to low)</option>
+                <option value="2025_desc">2025 return (high to low)</option>
+                <option value="ytd_desc">YTD 2026 (high to low)</option>
+                <option value="yield_desc">Yield (high to low)</option>
+                <option value="launch_date">Launch date (oldest first)</option>
+                <option value="mix_weight_desc">Mix weight (high to low)</option>
+                <option value="risk_desc">Risk rating (high to low)</option>
+            </select>
+        </div>
+
+        <!-- Holdings table -->
+        <div class="cyber-border bg-[#0d1527] rounded-sm overflow-hidden mb-6">
+            <div class="overflow-x-auto max-h-[60vh] overflow-y-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-[#10192e] text-cyan-400 text-xs uppercase sticky top-0">
+                        <tr>
+                            <th class="text-left px-3 py-3">Ticker</th>
+                            <th class="text-left px-3 py-3">Name</th>
+                            <th class="text-left px-3 py-3">Manager</th>
+                            <th class="text-left px-3 py-3">Asset Class</th>
+                            <th class="text-left px-3 py-3">Region</th>
+                            <th class="text-right px-3 py-3">MER %</th>
+                            <th class="text-right px-3 py-3">AUM ($B)</th>
+                            <th class="text-left px-3 py-3">Launch</th>
+                            <th class="text-left px-3 py-3">Risk Rating</th>
+                            <th class="text-left px-3 py-3">Medalist Rating</th>
+                            <th class="text-right px-3 py-3">Yield %</th>
+                            <th class="text-right px-3 py-3">P/E</th>
+                            <th class="text-right px-3 py-3">Mix Weight</th>
+                            <th class="text-right px-3 py-3">2025 Return</th>
+                            <th class="text-right px-3 py-3">YTD 2026</th>
+                            <th class="text-right px-3 py-3">Live Price</th>
+                        </tr>
+                    </thead>
+                    <tbody id="holdings-body" class="divide-y divide-slate-800">
+                        <tr><td colspan="16" class="text-center text-cyan-500 py-12 animate-pulse">INITIALIZING DATA STREAM...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Fund detail panel (click a row) -->
+        <div id="detail-panel" class="cyber-border bg-[#0d1527] p-4 rounded-sm mb-6 hidden">
+            <div class="flex justify-between items-start mb-2">
+                <p class="text-xs text-cyan-400 uppercase">Fund Detail</p>
+                <button id="detail-close" class="text-slate-500 hover:text-slate-300 text-xs">&times; close</button>
+            </div>
+            <div id="detail-content" class="text-sm text-slate-300 space-y-1"></div>
+        </div>
+
+        <p class="text-[10px] text-slate-600 leading-relaxed">
+            MER weighted by the proposed Mix allocation. Risk/objective text is general information, not advice.
+            Sector weights for broad index funds are approximate index-level GICS blends, not live look-through
+            holdings. 2026-2028 projection is a simple expected-value simulation (same assumption repeated each
+            year), not a forecast — actual returns vary year to year and can be negative. Tax treatment for a
+            Canadian holder of these US-domiciled ETFs is not shown here; consult the Excel fund-facts summary
+            or a tax advisor.
+        </p>
+    </div>
+
+    <script>
+        setInterval(() => {
+            document.getElementById('clock').innerText = new Date().toISOString().slice(11, 19) + " UTC";
+        }, 1000);
+
+        const ASSET_CLASS_COLORS = { 'Equity': '#22c55e', 'Fixed Income': '#06b6d4', 'Real Assets': '#f59e0b', 'Cash': '#94a3b8' };
+        const PALETTE = ['#06b6d4', '#22c55e', '#f59e0b', '#f43f5e', '#a78bfa', '#fb7185', '#34d399', '#60a5fa',
+                          '#fbbf24', '#c084fc', '#94a3b8', '#f472b6', '#4ade80', '#38bdf8'];
+
+        let apiData = null;
+        let allFunds = [];
+        let filtersPopulated = false;
+
+        const RISK_LEVELS = { 'Low': 1, 'Low to Medium': 2, 'Medium': 3, 'Medium to High': 4, 'High': 5 };
+        const RISK_BAR_COLOR = ['#22c55e', '#22c55e', '#fbbf24', '#fbbf24', '#f43f5e', '#f43f5e'];
+
+        function riskBarHtml(riskRating, size) {
+            const level = RISK_LEVELS[riskRating] || 0;
+            const cellW = size === 'lg' ? 'w-4 h-3' : 'w-2.5 h-2';
+            const bars = [1, 2, 3, 4, 5].map(i =>
+                `<span class="${cellW} inline-block rounded-[1px]" style="background-color:${i <= level ? RISK_BAR_COLOR[level] : '#1e293b'}"></span>`
+            ).join(size === 'lg' ? ' ' : '');
+            return `<span class="inline-flex gap-0.5 align-middle">${bars}</span> <span class="text-[10px] text-slate-500">${riskRating}</span>`;
+        }
+
+        function formatMoney(v) { return v === null || v === undefined ? '—' : `$${v.toFixed(2)}`; }
+        function formatPct(v) {
+            if (v === null || v === undefined) return '—';
+            const sign = v >= 0 ? '+' : '';
+            return `${sign}${v.toFixed(2)}%`;
+        }
+        function pctColor(v) {
+            if (v === null || v === undefined) return 'text-slate-600';
+            return v >= 0 ? 'text-green-400' : 'text-rose-500';
+        }
+
+        function renderTable(funds) {
+            const tbody = document.getElementById('holdings-body');
+            if (funds.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="16" class="text-center text-slate-500 py-12">No matching funds</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = funds.map(f => {
+                const hasLive = f.price !== null && f.price !== undefined;
+                return `
+                    <tr class="cursor-pointer" data-ticker="${f.ticker}">
+                        <td class="px-3 py-2 font-bold text-cyan-400">${f.ticker}</td>
+                        <td class="px-3 py-2 text-slate-300">${f.name}</td>
+                        <td class="px-3 py-2 text-slate-500">${f.manager}</td>
+                        <td class="px-3 py-2"><span class="text-[10px] px-1.5 py-0.5 rounded" style="background-color:${ASSET_CLASS_COLORS[f.asset_class]}22; color:${ASSET_CLASS_COLORS[f.asset_class]}">${f.asset_class}</span></td>
+                        <td class="px-3 py-2 text-slate-500">${f.region}</td>
+                        <td class="px-3 py-2 text-right text-slate-300">${f.mer_pct.toFixed(2)}%</td>
+                        <td class="px-3 py-2 text-right text-slate-300">${(f.aum_usd/1e9).toFixed(1)}</td>
+                        <td class="px-3 py-2 text-slate-500">${f.launch_date}${f.launch_date_estimated ? ' *' : ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${riskBarHtml(f.risk_rating)}</td>
+                        <td class="px-3 py-2 ${f.medalist_rating_confirmed ? 'text-amber-400' : 'text-slate-600 text-[11px]'}">${f.medalist_rating}</td>
+                        <td class="px-3 py-2 text-right text-slate-300">${f.yield_pct.toFixed(2)}%</td>
+                        <td class="px-3 py-2 text-right text-slate-300">${f.pe_ratio ? f.pe_ratio.toFixed(1) : '—'}</td>
+                        <td class="px-3 py-2 text-right text-cyan-200">${f.mix_weight_pct.toFixed(2)}%</td>
+                        <td class="px-3 py-2 text-right text-xs ${pctColor(f.annual_returns['2025'])}">${formatPct(f.annual_returns['2025'])}</td>
+                        <td class="px-3 py-2 text-right text-xs ${pctColor(f.ytd_2026_pct)}">${formatPct(f.ytd_2026_pct)}</td>
+                        <td class="px-3 py-2 text-right ${hasLive ? 'text-slate-100' : 'text-slate-600'}">${formatMoney(f.price)}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            tbody.querySelectorAll('tr[data-ticker]').forEach(tr => {
+                tr.addEventListener('click', () => showDetail(tr.dataset.ticker));
+            });
+        }
+
+        function showDetail(ticker) {
+            const f = allFunds.find(x => x.ticker === ticker);
+            if (!f) return;
+            const panel = document.getElementById('detail-panel');
+            const top = f.top_holdings
+                ? f.top_holdings.map(h => `${h.symbol} (${h.weight_pct.toFixed(1)}%)`).join(', ')
+                : f.top_holdings_note;
+            document.getElementById('detail-content').innerHTML = `
+                <p><span class="text-cyan-400 font-bold">${f.ticker}</span> — ${f.name} (${f.manager})</p>
+                <p>Objective: ${f.objective}</p>
+                <p>Key benefits: ${f.key_benefits}</p>
+                <p>Suggested horizon: ${f.investment_horizon}</p>
+                <p>Asset class: ${f.asset_class} | Region: ${f.region} | Currency: ${f.currency}</p>
+                <p>MER: ${f.mer_pct.toFixed(2)}% | AUM: $${(f.aum_usd/1e9).toFixed(1)}B | Launch: ${f.launch_date}${f.launch_date_estimated ? ' (estimated, see note)' : ''}</p>
+                <p>Risk rating: ${riskBarHtml(f.risk_rating, 'lg')} <span class="text-[10px] text-slate-600">(estimated from 10y volatility, not an issuer-published rating)</span></p>
+                <p>Morningstar Medalist Rating: <span class="${f.medalist_rating_confirmed ? 'text-amber-400' : 'text-slate-500'}">${f.medalist_rating}</span>${f.medalist_rating_as_of ? ` (as of ${f.medalist_rating_as_of})` : ''}${!f.medalist_rating_confirmed ? ' — verify on morningstar.com, exact tier not confirmed from search results' : ''}</p>
+                <p>Yield: ${f.yield_pct.toFixed(2)}% | 12m Trailing Yield: ${f.trailing_yield_pct !== null ? f.trailing_yield_pct.toFixed(2)+'%' : '—'} | P/E: ${f.pe_ratio ? f.pe_ratio.toFixed(1) : '—'}</p>
+                <p>10y annualized volatility: ${f.volatility_10y_pct.toFixed(2)}%</p>
+                <p>Mix weight: ${f.mix_weight_pct.toFixed(2)}% | Expected return assumption: ${f.expected_return_pct.toFixed(1)}%/yr</p>
+                <p>Top holdings: ${top}</p>
+            `;
+            panel.classList.remove('hidden');
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        document.getElementById('detail-close').addEventListener('click', () => document.getElementById('detail-panel').classList.add('hidden'));
+
+        function populateFilters(funds) {
+            if (filtersPopulated) return;
+            const fillSelect = (id, values) => {
+                const select = document.getElementById(id);
+                [...new Set(values)].filter(Boolean).sort().forEach(v => {
+                    const opt = document.createElement('option');
+                    opt.value = v; opt.textContent = v;
+                    select.appendChild(opt);
+                });
+            };
+            fillSelect('assetclass-filter', funds.map(f => f.asset_class));
+            fillSelect('region-filter', funds.map(f => f.region));
+            filtersPopulated = true;
+        }
+
+        function applyFilter() {
+            const query = document.getElementById('search-box').value.trim().toLowerCase();
+            const assetClass = document.getElementById('assetclass-filter').value;
+            const region = document.getElementById('region-filter').value;
+            const sortKey = document.getElementById('sort-select').value;
+
+            let filtered = allFunds.filter(f => {
+                const matchesQuery = !query || f.ticker.toLowerCase().includes(query) || f.name.toLowerCase().includes(query);
+                const matchesClass = !assetClass || f.asset_class === assetClass;
+                const matchesRegion = !region || f.region === region;
+                return matchesQuery && matchesClass && matchesRegion;
+            });
+
+            const sorters = {
+                mer_pct: (a, b) => a.mer_pct - b.mer_pct,
+                aum_usd_desc: (a, b) => b.aum_usd - a.aum_usd,
+                '2025_desc': (a, b) => (b.annual_returns['2025'] ?? -999) - (a.annual_returns['2025'] ?? -999),
+                ytd_desc: (a, b) => (b.ytd_2026_pct ?? -999) - (a.ytd_2026_pct ?? -999),
+                yield_desc: (a, b) => b.yield_pct - a.yield_pct,
+                launch_date: (a, b) => a.launch_date.localeCompare(b.launch_date),
+                mix_weight_desc: (a, b) => b.mix_weight_pct - a.mix_weight_pct,
+                risk_desc: (a, b) => (RISK_LEVELS[b.risk_rating] || 0) - (RISK_LEVELS[a.risk_rating] || 0),
+            };
+            if (sorters[sortKey]) filtered = filtered.sort(sorters[sortKey]);
+
+            renderTable(filtered);
+        }
+
+        const charts = {}; // ticker-keyed registry so we can destroy() before re-rendering on focus change
+
+        function destroyChart(key) {
+            if (charts[key]) { charts[key].destroy(); delete charts[key]; }
+        }
+
+        function renderSectorChart(funds, focusTicker) {
+            destroyChart('sector');
+            const ctx = document.getElementById('chart-sector');
+            const titleEl = document.getElementById('sector-chart-title');
+
+            if (focusTicker) {
+                const f = funds.find(x => x.ticker === focusTicker);
+                titleEl.innerText = `Sector Mix — ${focusTicker}`;
+                const entries = Object.entries(f.sector_weights);
+                charts.sector = new Chart(ctx, {
+                    type: 'pie',
+                    data: {
+                        labels: entries.map(([s]) => s),
+                        datasets: [{
+                            data: entries.map(([, v]) => v),
+                            backgroundColor: entries.map((_, i) => PALETTE[i % PALETTE.length]),
+                        }],
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 9 } } } },
+                    },
+                });
+                return;
+            }
+
+            titleEl.innerText = 'Sector Contribution by Fund (stacked %)';
+            const sectors = [...new Set(funds.flatMap(f => Object.keys(f.sector_weights)))];
+            const colorOf = {};
+            sectors.forEach((s, i) => colorOf[s] = PALETTE[i % PALETTE.length]);
+            charts.sector = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: funds.map(f => f.ticker),
+                    datasets: sectors.map(s => ({
+                        label: s,
+                        data: funds.map(f => f.sector_weights[s] || 0),
+                        backgroundColor: colorOf[s],
+                    })),
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: '#94a3b8', font: { size: 9 } } } },
+                    scales: {
+                        x: { stacked: true, ticks: { color: '#64748b', font: { size: 9 } }, grid: { display: false } },
+                        y: { stacked: true, max: 100, ticks: { color: '#64748b', callback: v => v + '%' }, grid: { color: '#1e293b' } },
+                    },
+                },
+            });
+        }
+
+        function renderPerformanceChart(funds, focusTicker) {
+            destroyChart('performance');
+            const ctx = document.getElementById('chart-performance');
+            const titleEl = document.getElementById('performance-chart-title');
+            const years = ['2016','2017','2018','2019','2020','2021','2022','2023','2024','2025','YTD26'];
+
+            if (focusTicker) {
+                const f = funds.find(x => x.ticker === focusTicker);
+                titleEl.innerText = `Annual Performance — ${focusTicker}`;
+                const data = [...years.slice(0, -1).map(y => f.annual_returns[y] ?? null), f.ytd_2026_pct ?? null];
+                charts.performance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: years,
+                        datasets: [{
+                            label: focusTicker,
+                            data,
+                            backgroundColor: data.map(v => v === null ? '#334155' : (v >= 0 ? '#22c55e' : '#f43f5e')),
+                        }],
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { ticks: { color: '#64748b' }, grid: { display: false } },
+                            y: { ticks: { color: '#64748b', callback: v => v + '%' }, grid: { color: '#1e293b' } },
+                        },
+                    },
+                });
+                return;
+            }
+
+            titleEl.innerText = 'Annual Performance by Fund (click legend to toggle)';
+            charts.performance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: years,
+                    datasets: funds.map((f, i) => ({
+                        label: f.ticker,
+                        data: [...years.slice(0, -1).map(y => f.annual_returns[y] ?? null), f.ytd_2026_pct ?? null],
+                        borderColor: PALETTE[i % PALETTE.length],
+                        backgroundColor: PALETTE[i % PALETTE.length],
+                        borderWidth: 1.5, pointRadius: 1.5, tension: 0.15, spanGaps: true,
+                    })),
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: '#94a3b8', font: { size: 9 } } } },
+                    scales: {
+                        x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+                        y: { ticks: { color: '#64748b', callback: v => v + '%' }, grid: { color: '#1e293b' } },
+                    },
+                },
+            });
+        }
+
+        function renderHoldingsChart(data, focusTicker) {
+            destroyChart('holdings');
+            const ctx = document.getElementById('chart-holdings');
+            const titleEl = document.getElementById('holdings-chart-title');
+            const noteEl = document.getElementById('holdings-chart-note');
+
+            let entries, label;
+            if (focusTicker) {
+                const f = data.funds.find(x => x.ticker === focusTicker);
+                titleEl.innerText = `Top Holdings — ${focusTicker}`;
+                if (!f.top_holdings) {
+                    noteEl.innerText = f.top_holdings_note;
+                    noteEl.classList.remove('hidden');
+                    ctx.getContext('2d').clearRect(0, 0, ctx.width, ctx.height);
+                    return;
+                }
+                noteEl.classList.add('hidden');
+                entries = f.top_holdings.map(h => [h.symbol, h.weight_pct]);
+                label = `% of ${focusTicker}`;
+            } else {
+                titleEl.innerText = 'Top Holdings — Mix (look-through, weighted by fund mix %)';
+                noteEl.classList.add('hidden');
+                entries = data.mix_top_holdings.map(h => [h.symbol, h.weight_pct]);
+                label = '% of total Mix portfolio';
+            }
+
+            charts.holdings = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: entries.map(([s]) => s),
+                    datasets: [{ label, data: entries.map(([, w]) => w), backgroundColor: '#06b6d4' }],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#64748b', callback: v => v + '%' }, grid: { color: '#1e293b' } },
+                        y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { display: false } },
+                    },
+                },
+            });
+        }
+
+        function renderMixProjectionChart(data, focusTicker) {
+            destroyChart('projection');
+            const ctx = document.getElementById('chart-mix-projection');
+            const titleEl = document.getElementById('projection-chart-title');
+
+            if (focusTicker) {
+                const f = data.funds.find(x => x.ticker === focusTicker);
+                titleEl.innerText = `${focusTicker}: Historical Return vs 2026-2028 Projection`;
+                const histYears = ['2016','2017','2018','2019','2020','2021','2022','2023','2024','2025']
+                    .filter(y => f.annual_returns[y] !== undefined && f.annual_returns[y] !== null);
+                const labels = [...histYears, 'YTD26', '2026 (sim)', '2027 (sim)', '2028 (sim)'];
+                const proj = data.projection_per_fund[focusTicker];
+                const values = [...histYears.map(y => f.annual_returns[y]), f.ytd_2026_pct, proj['2026'], proj['2027'], proj['2028']];
+                const isProjected = [...histYears.map(() => false), false, true, true, true];
+                charts.projection = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels,
+                        datasets: [{
+                            label: `${focusTicker} annual return %`,
+                            data: values,
+                            backgroundColor: isProjected.map(p => p ? 'rgba(245, 158, 11, 0.55)' : '#22c55e'),
+                            borderColor: isProjected.map(p => p ? '#f59e0b' : '#22c55e'),
+                            borderWidth: 1,
+                        }],
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { display: false } },
+                            y: { ticks: { color: '#64748b', callback: v => v + '%' }, grid: { color: '#1e293b' } },
+                        },
+                    },
+                });
+                return;
+            }
+
+            titleEl.innerText = 'Mix Portfolio: Historical Return vs 2026-2028 Projection';
+            const histYears = Object.keys(data.mix_historical_returns).filter(y => data.mix_historical_returns[y] !== null);
+            const labels = [...histYears, 'YTD26', '2026 (sim)', '2027 (sim)', '2028 (sim)'];
+            const values = [
+                ...histYears.map(y => data.mix_historical_returns[y]),
+                data.mix_ytd_2026_pct,
+                data.projection_mix['2026'], data.projection_mix['2027'], data.projection_mix['2028'],
+            ];
+            const isProjected = [...histYears.map(() => false), false, true, true, true];
+            charts.projection = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Mix annual return %',
+                        data: values,
+                        backgroundColor: isProjected.map(p => p ? 'rgba(245, 158, 11, 0.55)' : '#22c55e'),
+                        borderColor: isProjected.map(p => p ? '#f59e0b' : '#22c55e'),
+                        borderWidth: 1,
+                    }],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { display: false } },
+                        y: { ticks: { color: '#64748b', callback: v => v + '%' }, grid: { color: '#1e293b' } },
+                    },
+                },
+            });
+        }
+
+        function renderFocusedCharts() {
+            const focusTicker = document.getElementById('fund-focus').value || null;
+            renderSectorChart(allFunds, focusTicker);
+            renderPerformanceChart(allFunds, focusTicker);
+            renderHoldingsChart(apiData, focusTicker);
+            renderMixProjectionChart(apiData, focusTicker);
+        }
+
+        function populateFundFocus(funds) {
+            const select = document.getElementById('fund-focus');
+            funds.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f.ticker;
+                opt.textContent = `${f.ticker} — ${f.name}`;
+                select.appendChild(opt);
+            });
+        }
+
+        function updateSummary(data) {
+            document.getElementById('stat-count').innerText = data.funds.length;
+            document.getElementById('stat-mer').innerText = data.mix_weighted_mer_pct.toFixed(3) + '%';
+            document.getElementById('stat-return').innerText = data.mix_expected_return_pct.toFixed(2) + '%';
+            const eq = data.asset_class_breakdown['Equity'] ?? 0;
+            const fi = data.asset_class_breakdown['Fixed Income'] ?? 0;
+            document.getElementById('stat-split').innerText = `${eq.toFixed(0)}% / ${fi.toFixed(0)}%`;
+        }
+
+        async function init() {
+            const response = await fetch('/api/us-portfolio');
+            const data = await response.json();
+            apiData = data;
+            allFunds = data.funds;
+
+            updateSummary(data);
+            populateFilters(allFunds);
+            populateFundFocus(allFunds);
+            applyFilter();
+            renderFocusedCharts();
+        }
+
+        document.getElementById('search-box').addEventListener('input', applyFilter);
+        document.getElementById('assetclass-filter').addEventListener('change', applyFilter);
+        document.getElementById('region-filter').addEventListener('change', applyFilter);
+        document.getElementById('sort-select').addEventListener('change', applyFilter);
+        document.getElementById('fund-focus').addEventListener('change', renderFocusedCharts);
+
+        init();
+    </script>
+</body>
+</html>
