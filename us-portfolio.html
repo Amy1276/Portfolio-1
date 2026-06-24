@@ -543,7 +543,10 @@
             renderMixProjectionChart(apiData, focusTicker);
         }
 
+        let fundFocusPopulated = false;
+
         function populateFundFocus(funds) {
+            if (fundFocusPopulated) return;
             const select = document.getElementById('fund-focus');
             funds.forEach(f => {
                 const opt = document.createElement('option');
@@ -551,6 +554,7 @@
                 opt.textContent = `${f.ticker} — ${f.name}`;
                 select.appendChild(opt);
             });
+            fundFocusPopulated = true;
         }
 
         function updateSummary(data) {
@@ -562,17 +566,21 @@
             document.getElementById('stat-split').innerText = `${eq.toFixed(0)}% / ${fi.toFixed(0)}%`;
         }
 
-        async function init() {
-            const response = await fetch('/api/us-portfolio');
-            const data = await response.json();
-            apiData = data;
-            allFunds = data.funds;
+        async function fetchUsPortfolio() {
+            try {
+                const response = await fetch('/api/us-portfolio');
+                const data = await response.json();
+                apiData = data;
+                allFunds = data.funds;
 
-            updateSummary(data);
-            populateFilters(allFunds);
-            populateFundFocus(allFunds);
-            applyFilter();
-            renderFocusedCharts();
+                updateSummary(data);
+                populateFilters(allFunds);
+                populateFundFocus(allFunds);
+                applyFilter(); // re-render respecting any active search/filter/sort selection
+                renderFocusedCharts(); // re-render respecting the current fund-focus selection
+            } catch (err) {
+                console.error('Failed to load US ETF portfolio data:', err);
+            }
         }
 
         document.getElementById('search-box').addEventListener('input', applyFilter);
@@ -581,7 +589,8 @@
         document.getElementById('sort-select').addEventListener('change', applyFilter);
         document.getElementById('fund-focus').addEventListener('change', renderFocusedCharts);
 
-        init();
+        fetchUsPortfolio();
+        setInterval(fetchUsPortfolio, 15000);
     </script>
 </body>
 </html>
